@@ -20,7 +20,7 @@
  *============================================================================*/
 
 /*
- * $Revision: 1.26 $
+ * $Revision: 1.28 $
  *
  * 14 Mar 02 - Mike: Fixed a problem caused with 16-bit pushes in richards2
  * 20 Apr 02 - Mike: Mods for boomerang
@@ -927,6 +927,12 @@ void UserProc::getStatements(StatementList &stmts) {
                 jcond->setProc(this);
                 jcond->setBB(bb);
             }
+            if (rtl->getKind() == SCOND_RTL) {
+                HLScond *scond = (HLScond*)rtl;
+                stmts.append(scond);
+                scond->setProc(this);
+                scond->setBB(bb);
+            }
         }
     }
 }
@@ -978,7 +984,8 @@ void UserProc::decompile() {
         call->decompile();
     }
 
-    cfg->computeDataflow();
+    if (!Boomerang::get()->noDataflow)
+        cfg->computeDataflow();
 #if 1   // Calculate ud/du as needed
     for (Statement* s = stmts.getFirst(it); s; s = stmts.getNext(it))
         s->calcUseLinks();
@@ -990,6 +997,8 @@ void UserProc::decompile() {
     }
     bool change = true;
     while (change) {
+        if (Boomerang::get()->noDataflow)
+            break;
         change = false;
         change |= propagateAndRemoveStatements();
         bool propagated = change;
@@ -1008,7 +1017,7 @@ void UserProc::decompile() {
     if (!Boomerang::get()->noRemoveInternal)
         removeInternalStatements();
     cfg->compressCfg();
-    inlineConstants();
+    processConstants();
     promoteSignature();
     cfg->structure();
     replaceExpressionsWithGlobals();
@@ -1281,6 +1290,7 @@ void UserProc::removeInternalStatements() {
             }
             // This reaches the end of the proc. Save it in case it's for
             // the return location
+            s->clearUses();
             internal.append(s);
             removeStatement(s);
             cfg->getReachExit().remove(s);
@@ -1292,13 +1302,13 @@ void UserProc::eraseInternalStatement(Statement *stmt) {
     internal.remove(stmt);
 }
 
-void UserProc::inlineConstants() {
+void UserProc::processConstants() {
     StatementList stmts;
     getStatements(stmts);
-    // inline any constants in the statement
+    // process any constants in the statement
     StmtListIter it;
     for (Statement* s = stmts.getFirst(it); s; s = stmts.getNext(it))
-        s->inlineConstants(prog);
+        s->processConstants(prog);
 }
 
 // bMemProp set to true if a memory location is propagated

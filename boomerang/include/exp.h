@@ -7,7 +7,7 @@
  *             subclasses.
  *============================================================================*/
 /*
- * $Revision: 1.18 $
+ * $Revision: 1.20 $
  *
  * 05 Apr 02 - Mike: Created
  * 05 Apr 02 - Mike: Added clone(), copy constructors
@@ -122,8 +122,8 @@ virtual int getArity() {return 0;}      // Overridden for Unary, Binary, etc
     bool isMemOf() {return op == opMemOf;}
     // True if this is an address of
     bool isAddrOf() {return op == opAddrOf;}
-    // True if this is a temporary
-    bool isTemp() {return op == opTemp;}
+    // True if this is a temporary. Note some old code still has r[tmp]
+    bool isTemp();
     // True if this is the anull Terminal (anulls next instruction)
     bool isAnull() {return op == opAnull;}
     // True if this is the Nil Terminal (terminates lists; "NOP" expression)
@@ -582,7 +582,7 @@ public:
         virtual void printAsUseBy(std::ostream &os);
 
 	// inline any constants in the statement
-	virtual void inlineConstants(Prog *prog);
+	virtual void processConstants(Prog *prog);
 
         // general search
         virtual bool search(Exp* search, Exp*& result) {

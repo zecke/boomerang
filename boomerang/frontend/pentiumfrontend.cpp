@@ -16,11 +16,12 @@
  *============================================================================*/
 
 /*
- * $Revision: 1.6 $
+ * $Revision: 1.8 $
  * 21 Oct 98 - Mike: converted from frontsparc.cc
  * 21 May 02 - Mike: Mods for boomerang
  * 27 Nov 02 - Mike: Fixed a bug in the floating point fixup code, which was
  *                  screwing up registers in flag calls
+ * 16 Apr 03 - Mike: processFloatCode accepts test 0x45 where and 0x45 expected
 */
 
 #include <assert.h>
@@ -202,10 +203,10 @@ bool PentiumFrontEnd::processProc(ADDRESS uAddr, UserProc* pProc, std::ofstream 
  *                  to get the right value at any point in the call tree
  * PARAMETERS:    pBB: pointer to the current BB
  *                tos: reference to the value of the "top of stack" pointer
- *				    currently. Starts at zero, and is decremented to 7 with
- *					the first load, so r[39] should be used first, then r[38]
- *					etc. However, it is reset to 0 for calls, so that if a
- *					function returns a float, the it will always appear in r[32]
+ *                currently. Starts at zero, and is decremented to 7 with
+ *                the first load, so r[39] should be used first, then r[38]
+ *		  etc. However, it is reset to 0 for calls, so that if a
+ *                function returns a float, the it will always appear in r[32]
  * RETURNS:       <nothing>
  *============================================================================*/
 void PentiumFrontEnd::processFloatCode(PBB pBB, int& tos, Cfg* pCfg)
@@ -221,18 +222,18 @@ void PentiumFrontEnd::processFloatCode(PBB pBB, int& tos, Cfg* pCfg)
     }
     rit = BB_rtls->begin();
     while (rit != BB_rtls->end()) {
-		// Check for call.
-		if ((*rit)->getKind() == CALL_RTL) {
-			// Reset the "top of stack" index. If this is not done, then after
-			// a sequence of calls to functions returning floats, the value will
-			// appear to be returned in registers r[32], then r[33], etc.
-			tos = 0;
-		}
-        if ((*rit)->getNumExp() == 0) {rit++; continue;}
+        // Check for call.
+        if ((*rit)->getKind() == CALL_RTL) {
+            // Reset the "top of stack" index. If this is not done, then after
+            // a sequence of calls to functions returning floats, the value will
+            // appear to be returned in registers r[32], then r[33], etc.
+            tos = 0;
+        }
+        if ((*rit)->getNumExp() == 0) { rit++; continue; }
         // Check for f(n)stsw
         if (isStoreFsw((*rit)->elementAt(0))) {
             // Check the register - at present we only handle AX
-            Exp* lhs = ((AssignExp*)*rit)->getSubExp1();
+            Exp* lhs = ((AssignExp*)(*rit)->elementAt(0))->getSubExp1();
             Exp* ax = new Unary(opRegOf, new Const(0));
             assert(*lhs == *ax);
             delete ax;
@@ -249,7 +250,7 @@ void PentiumFrontEnd::processFloatCode(PBB pBB, int& tos, Cfg* pCfg)
         for (int i=0; i < (*rit)->getNumExp(); i++) {
             // Get the current Exp
             exp = (*rit)->elementAt(i);
-            if (!exp->isFlagCall()) {
+            if (!exp->isFlagAssgn()) {
                 // We are interested in either FPUSH/FPOP, or r[32..39]
                 // appearing in either the left or right hand sides, or calls
                 Terminal fpush(opFpush);
@@ -335,7 +336,7 @@ void PentiumFrontEnd::processFloatCode(PBB pBB, int& tos, Cfg* pCfg)
 /*
 // Finite state machine for recognising code handling floating point CCs
 //
-//                               Start=0
+//            test_45 or          Start=0
 //          ___and_45____________/ |  \  \______sahf____________
 //        /                        |   \_____and_5__________    \     ___ 
 //       [1]__________cmp_1_      and 44                    \    \   /   |jp
@@ -360,12 +361,12 @@ void PentiumFrontEnd::processFloatCode(PBB pBB, int& tos, Cfg* pCfg)
  * RETURNS:       True if the current BB is deleted (because 2 BBs were joined)
  *                  Also returns true on error, so abandon this BB
  *============================================================================*/
-bool PentiumFrontEnd::processStsw(std::list<RTL*>::iterator& rit, std::list<RTL*>* BB_rtls, PBB pBB,
-  Cfg* pCfg) {
+bool PentiumFrontEnd::processStsw(std::list<RTL*>::iterator& rit,
+  std::list<RTL*>* BB_rtls, PBB pBB, Cfg* pCfg) {
     int state = 0;              // Start in state 0
-    Unary ah(opRegOf, new Const(AH));
-    Unary notZf(opNot, new Terminal(opZF));
-    Ternary ahAt7(opTern,
+    static Unary ah(opRegOf, new Const(AH));
+    static Unary notZf(opNot, new Terminal(opZF));
+    static Ternary ahAt7(opTern,
         new Unary(opRegOf, new Const(AH)),
         new Const(7),
         new Const(7));
@@ -389,8 +390,9 @@ bool PentiumFrontEnd::processStsw(std::list<RTL*>::iterator& rit, std::list<RTL*
         Exp* lhs = asgn->getSubExp1();
         Exp* rhs = asgn->getSubExp2();
         Exp* result;
-        // Check if assigns to and uses register ah
-        if (lhs->search(&ah, result) && rhs->search(&ah, result)) {
+        // Check if uses register ah, and assigns to either ah or a temp
+        if ((lhs->search(&ah, result) || lhs->isTemp()) &&
+          rhs->search(&ah, result)) {
             // Should be an AND or XOR instruction
             OPER op = rhs->getOper();
             if ((op == opBitAnd) || (op == opBitXor)) {
