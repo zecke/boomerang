@@ -15,7 +15,7 @@
  *============================================================================*/
 
 /*
- * $Revision: 1.101 $	// 1.93.2.8
+ * $Revision: 1.105 $	// 1.93.2.8
  * Dec 97 - created by Mike
  * 18 Apr 02 - Mike: Changes for boomerang
  * 04 Dec 02 - Mike: Added isJmpZ
@@ -962,7 +962,7 @@ void BasicBlock::generateCode(HLLCode *hll, int indLevel, PBB latch,
 	PBB enclFollow = followSet.size() == 0 ? NULL : followSet.back();
 
 	if (isIn(gotoSet, this) && !isLatchNode() && 
-			((latch && this == latch->loopHead->loopFollow) || 
+			((latch && latch->loopHead && this == latch->loopHead->loopFollow) || 
 			!allParentsGenerated())) {
 		emitGotoAndLabel(hll, indLevel, this);
 		return;
@@ -1651,8 +1651,7 @@ int BasicBlock::whichPred(PBB pred) {
 
 // Switch High Level patterns
 
-// With array processing, we get a new form, call it form 'a' (don't
-// confuse with form 'A'):
+// With array processing, we get a new form, call it form 'a' (don't confuse with form 'A'):
 // Pattern: <base>{}[<index>]{} where <index> could be <var> - <Kmin>
 static Exp* forma = new RefExp(
 		new Binary(opArrayIndex,
@@ -2067,10 +2066,10 @@ bool BasicBlock::decodeIndirectJmp(UserProc* proc) {
 				Exp* e = ((Binary*)lhs)->getSubExp1();
 				Exp* CK1 = ((Binary*)lhs)->getSubExp2();
 				int K1 = ((Const*)CK1)->getInt();
-std::cerr << "From statement " << lastStmt << " get e = " << e << ", K1 = " << K1 << ", K2 = " << K2 << "\n";
+std::cerr << "Form 1: from statement " << lastStmt << " get e = " << e << ", K1 = " << K1 << ", K2 = " << K2 << "\n";
 #endif
 			}
-		}			 
+		}
 			
 		return false;
 	}

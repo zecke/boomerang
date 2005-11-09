@@ -14,7 +14,7 @@
  *============================================================================*/
 
 /*
- * $Revision: 1.168 $	// 1.148.2.38
+ * $Revision: 1.171 $	// 1.148.2.38
  * 03 Jul 02 - Trent: Created
  * 09 Jan 03 - Mike: Untabbed, reformatted
  * 03 Feb 03 - Mike: cached dataflow (uses and usedBy) (since reversed)
@@ -1336,8 +1336,7 @@ Exp *CallStatement::getProven(Exp *e) {
 // Localise only components of e, i.e. xxx if e is m[xxx]
 void CallStatement::localiseComp(Exp* e, int depth /* = -1 */) {
 	if (e->isMemOf()) {
-		Exp*& sub1 = ((Location*)e)->refSubExp1();
-		sub1 = localiseExp(sub1, depth);
+        ((Location*)e)->setSubExp1(localiseExp(((Location*)e)->getSubExp1(), depth));
 	}
 }
 // Substitute the various components of expression e with the appropriate reaching definitions.
@@ -1760,7 +1759,7 @@ void CallStatement::getDefinitions(LocationSet &defs) {
 		defs.insert(((Assignment*)*dd)->getLeft());
 	// Childless calls are supposed to define everything. In practice they don't really define things like %pc, so we
 	// need some extra logic in getTypeFor()
-	if (isChildless())
+	if (isChildless() && !Boomerang::get()->assumeABI)
 		defs.insert(new Terminal(opDefineAll));
 }
 
@@ -1858,7 +1857,7 @@ bool CallStatement::convertToDirect() {
 				newimpargs[i] =
 					sig->getImplicitParamExp(i)->clone();
 				if (newimpargs[i]->getOper() == opMemOf) {
-					newimpargs[i]->refSubExp1() = localiseExp(newimpargs[i]-> getSubExp1());
+					newimpargs[i]->setSubExp1(localiseExp(newimpargs[i]->getSubExp1()));
 				}
 			}
 		}
@@ -1881,7 +1880,7 @@ bool CallStatement::convertToDirect() {
 				Exp* parami = sig->getParamExp(i);
 				newargs[i] = parami->clone();
 				if (newargs[i]->getOper() == opMemOf) {
-					newargs[i]->refSubExp1() = localiseExp(newargs[i]->getSubExp1());
+					newargs[i]->setSubExp1(localiseExp(newargs[i]->getSubExp1()));
 				}
 			}
 		}
@@ -2157,7 +2156,8 @@ Type* CallStatement::getTypeFor(Exp* e) {
 	return calleeReturn->getTypeFor(e);
 #endif
 #else
-	return NULL;
+	// return NULL;
+	return new VoidType;
 #endif
 }
 
@@ -2941,7 +2941,7 @@ void Assign::simplify() {
 		guard = NULL;			// No longer a guarded assignment
 
 	if (lhs->getOper() == opMemOf) {
-		lhs->refSubExp1() = lhs->getSubExp1()->simplifyArith();
+		lhs->setSubExp1(lhs->getSubExp1()->simplifyArith());
 	}
 
 	// this hack finds address constants.. it should go away when Mike writes some decent type analysis.
@@ -3772,8 +3772,7 @@ bool BoolAssign::accept(StmtModifier* v) {
 	if (pCond && recur)
 		pCond = pCond->accept(v->mod);
 	if (recur && lhs->isMemOf()) {
-		Exp*& sub1 = ((Location*)lhs)->refSubExp1();
-		sub1 = sub1->accept(v->mod);
+        ((Location*)lhs)->setSubExp1(((Location*)lhs)->getSubExp1()->accept(v->mod));
 	}
 	return true;
 }
@@ -3785,8 +3784,7 @@ bool Assign::accept(StmtPartModifier* v) {
 	v->visit(this, recur);
 	v->mod->clearMod();
 	if (recur && lhs->isMemOf()) {
-		Exp*& sub1 = ((Location*)lhs)->refSubExp1();
-		sub1 = sub1->accept(v->mod);
+        ((Location*)lhs)->setSubExp1(((Location*)lhs)->getSubExp1()->accept(v->mod));
 	}
 	if (recur) rhs = rhs->accept(v->mod);
 	if (VERBOSE && v->mod->isMod())
@@ -3798,8 +3796,7 @@ bool PhiAssign::accept(StmtPartModifier* v) {
 	v->visit(this, recur);
 	v->mod->clearMod();
 	if (recur && lhs->isMemOf()) {
-		Exp*& sub1 = ((Location*)lhs)->refSubExp1();
-		sub1 = sub1->accept(v->mod);
+        ((Location*)lhs)->setSubExp1(((Location*)lhs)->getSubExp1()->accept(v->mod));
 	}
 	if (VERBOSE && v->mod->isMod())
 		LOG << "PhiAssign changed: now " << this << "\n";
@@ -3811,8 +3808,7 @@ bool ImplicitAssign::accept(StmtPartModifier* v) {
 	v->visit(this, recur);
 	v->mod->clearMod();
 	if (recur && lhs->isMemOf()) {
-		Exp*& sub1 = ((Location*)lhs)->refSubExp1();
-		sub1 = sub1->accept(v->mod);
+        ((Location*)lhs)->setSubExp1(((Location*)lhs)->getSubExp1()->accept(v->mod));
 	}
 	if (VERBOSE && v->mod->isMod())
 		LOG << "ImplicitAssign changed: now " << this << "\n";
@@ -4416,15 +4412,21 @@ void CallStatement::updateDefines() {
 		// Else just use the enclosing proc's signature
 		sig = proc->getSignature();
 
+	if (procDest && procDest->isLib()) {
+		sig->setLibraryDefines(&defines);				// Set the locations defined
+		return;
+	} else if (Boomerang::get()->assumeABI) {
+		// Risky: just assume the ABI caller save registers are defined
+		Signature::setABIdefines(proc->getProg(), &defines);
+		return;
+	}
+
 	// Move the defines to a temporary list
 	StatementList oldDefines(defines);					// Copy the old defines
 	StatementList::iterator it;
 	defines.clear();
 
-	if (procDest && procDest->isLib()) {
-		sig->setLibraryDefines(&defines);				// Set the locations defined
-		return;
-	} else if (procDest && calleeReturn) {
+	if (procDest && calleeReturn) {
 		StatementList::iterator mm;
 		StatementList& modifieds = ((UserProc*)procDest)->getModifieds();
 		for (mm = modifieds.begin(); mm != modifieds.end(); ++mm) {

@@ -13,7 +13,7 @@
  *============================================================================*/
 
 /*
- * $Revision: 1.44 $	// 1.43.2.24
+ * $Revision: 1.47 $	// 1.43.2.24
  * 15 Mar 05 - Mike: Separated from cfg.cpp
  */
 
@@ -23,6 +23,7 @@
 #include "cfg.h"
 #include "proc.h"
 #include "exp.h"
+#include "boomerang.h"
 
 extern char debug_buffer[];		 // For prints functions
 
@@ -350,7 +351,7 @@ void DataFlow::renameBlockVars(UserProc* proc, int n, int memDepth, bool clearSt
 				// Replace the use of x with x{def} in S
 				if (S->isPhi()) {
 					Exp* phiLeft = ((PhiAssign*)S)->getLeft();
-					phiLeft->refSubExp1() = phiLeft->getSubExp1()->expSubscriptVar(x, def /*, this*/);
+					phiLeft->setSubExp1(phiLeft->getSubExp1()->expSubscriptVar(x, def /*, this*/));
 				} else
 					S->subscriptVar(x, def /*, this */);
 			}
@@ -392,12 +393,13 @@ void DataFlow::renameBlockVars(UserProc* proc, int n, int memDepth, bool clearSt
 		}
 		// Special processing for define-alls (presently, only childless calls).
 		// But note that only everythings at the current memory level are defined!
-		if (S->isCall() && ((CallStatement*)S)->isChildless()) {	// If S is a childless call
+		if (S->isCall() && ((CallStatement*)S)->isChildless() && !Boomerang::get()->assumeABI) {
+			// S is a childless call (and we're not assuming ABI compliance)
 			Stacks[defineAll];										// Ensure that there is an entry for defineAll
 			std::map<Exp*, std::stack<Statement*>, lessExpStar>::iterator dd;
 			for (dd = Stacks.begin(); dd != Stacks.end(); ++dd) {
 				if (dd->first->isMemDepth(memDepth))
-					dd->second.push(S);									// Add a definition for all vars
+					dd->second.push(S);								// Add a definition for all vars
 			}
 		}
 	}
